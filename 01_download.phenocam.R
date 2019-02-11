@@ -1,3 +1,4 @@
+```{r}
 ##' Download Phenocam data
 ##' 
 ##' @param URL  web address where data is located
