@@ -1,0 +1,139 @@
+---
+title: "04_Master"
+author: "Carina and Casey"
+date: "February 16, 2019"
+output: html_document
+---
+
+
+Task 2: Create Function download.phenocam
+```{r}
+##' Download Phenocam data
+##' 
+##' @param URL  web address where data is located
+download.phenocam <- function(URL) {
+  ## check that we've been passed a URL
+  if (length(URL) == 1 & is.character(URL) & substr(URL,1,4)=="http") {
+    
+    ## read data
+    dat <- read.csv(URL,skip = 22)
+    
+    ## convert date
+    dat$date <- as.Date(as.character(dat$date))
+    
+    return(dat)
+  } else {
+    print(paste("download.phenocam: Input URL not provided correctly",URL))
+  }
+}
+```
+
+Task 3: Create function plot.phenocam
+```{r}
+## Define ciEnvelope function
+ciEnvelope <- function(x,ylo,yhi,col="lightgrey",...){
+  ## identify chunks of data with no missing values
+  has.na = apply(is.na(cbind(x,ylo,yhi)),1,sum)
+  block = cumsum(has.na);block[has.na>0] = NA
+  blocks = na.omit(unique(block))
+  
+  for(i in blocks){
+    sel = which(block==i)
+    polygon(cbind(c(x[sel], rev(x[sel]), x[sel[1]]), c(ylo[sel], rev(yhi[sel]),
+                                                       ylo[sel[1]])), col=col,border = NA,...) 
+  }
+}
+
+##' Plot Phenocam data
+##' 
+##' @param dat  dataframe of date, gcc_mean, gcc_std
+##' @param ...  additional graphing parameters
+plot.phenocam <- function(dat,...){
+  
+  if(!is.null(dat)){
+    
+    ## QC flags
+    gcc_mean = dat$gcc_mean
+    gcc_mean[dat$outlierflag_gcc_mean>-9999] = NA
+    
+    ## base plot
+    plot(dat$date,dat$gcc_mean,type='l',...)
+    
+    ## calculate CI
+    ylo = dat$gcc_mean-1.96*dat$gcc_std
+    yhi = dat$gcc_mean+1.96*dat$gcc_std
+    
+    ## add confidence envelope
+    ciEnvelope(dat$date,ylo,yhi)
+    
+    ## replot mean line
+    lines(dat$date,dat$gcc_mean,lwd=1.5)
+    
+  } else {
+    print("plot.phenocam: input data not provided")
+  }
+  
+}
+```
+
+Task 4: Create function pred.logistic and fit.logistic
+```{r}
+##' Logistic model
+##'
+##' @param theta  parameter vector
+##' @param x      vector of x values
+##' @return vector of model predictions
+pred.logistic <- function(theta,x){
+  z = exp(theta[3]+theta[4]*x)
+  Ey = theta[1]+theta[2]*z/(1+z) 
+}
+##' Fit logistic model
+##' 
+##' @param dat  dataframe of day of year (doy), gcc_mean, gcc_std
+##' @param par  vector of initial parameter guess
+##' @return  output from numerical optimization
+fit.logistic <- function(dat,par){
+  
+  ## define log likelihood
+  lnL.logistic <- function(theta,dat){
+    -sum(dnorm(dat$gcc_mean,pred.logistic(theta,dat$doy),dat$gcc_std,log=TRUE))
+  }
+  
+  ## fit by numerical optimization
+  optim(par,fn = lnL.logistic,dat=dat)
+}
+
+```
+
+
+Task 5: Create Master Script
+```{r}
+## Master script for phenology analysis
+
+## Load required functions
+if(file.exists("01_download.phenocam.R")) source("01_download.phenocam.R")
+if(file.exists("02_plot.phenocam.R"))     source("02_plot.phenocam.R")
+if(file.exists("03_logistic.R"))          source("03_logistic.R")
+
+## Download phenology data
+URL = "http://phenocam.sr.unh.edu/data/archive/uiefprairie/ROI/uiefprairie_GR_1000_1day.csv"
+prairie.pheno <- download.phenocam(URL)
+
+## Plot overall phenology data
+plot.phenocam(prairie.pheno)
+
+## Create and visualize subset of data for leaf out
+spring = as.Date(c("2015-01-01","2015-06-01"))
+dat = subset(prairie.pheno,date > spring[1] & date < spring[2], select=c(date,gcc_mean,gcc_std))
+plot.phenocam(dat)
+
+## Fit logistic model
+dat$doy = as.POSIXlt(dat$date)$yday
+par = c(0.33,0.11,-10,0.1)
+fit = fit.logistic(dat,par)
+
+## Visualize model and data
+plot.phenocam(dat)
+lines(dat$date,pred.logistic(fit$par,dat$doy),col=2)
+
+```
